@@ -79,3 +79,55 @@ jobs:
           name: relatorio-02-semgrep
           path: semgrep.json
           if-no-files-found: warn
+  build:
+    name: "03 - Build e Testes"
+    runs-on: ubuntu-24.04
+    needs: sast
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Executar testes
+        run: npm test
+
+      - name: Gerar arvore de dependencias
+        if: always()
+        run: npm ls --all > arvore-dependencias.txt 2>&1 || true
+
+      - name: Executar npm audit informativo
+        if: always()
+        run: |
+          npm audit --json > npm-audit.json || true
+
+      - name: Publicar relatorio do build
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relatorio-03-build
+          path: |
+            arvore-dependencias.txt
+            npm-audit.json
+          if-no-files-found: warn
+
+      - name: Publicar aplicacao
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cyberquiz-${{ github.sha }}
+          path: |
+            src/
+            package.json
+            package-lock.json
+            Dockerfile
+            .dockerignore
+          if-no-files-found: error
