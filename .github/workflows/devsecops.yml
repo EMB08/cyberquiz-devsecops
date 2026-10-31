@@ -1,0 +1,49 @@
+name: CyberQuiz DevSecOps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets-scan:
+    name: "01 - Gitleaks"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Instalar Gitleaks
+        run: |
+          GITLEAKS_VERSION="8.24.3"
+
+          curl --fail --location --silent --show-error \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o gitleaks.tar.gz
+
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+
+      - name: Analisar historico Git
+        run: |
+          gitleaks git . \
+            --redact \
+            --report-format json \
+            --report-path gitleaks.json \
+            --exit-code 1
+
+      - name: Publicar relatorio Gitleaks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-01-gitleaks
+          path: gitleaks.json
+          if-no-files-found: warn
