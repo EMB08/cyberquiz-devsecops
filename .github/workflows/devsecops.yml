@@ -185,3 +185,85 @@ jobs:
             trivy-sca-completo.txt
             trivy-sca-high-critical.json
           if-no-files-found: warn
+
+  docker-build:
+    name: "05 - Docker Build e GHCR"
+    runs-on: ubuntu-24.04
+    needs: sca
+
+    if: github.event_name != 'pull_request'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Preparar nome da imagem
+        id: image
+        shell: bash
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tag=$IMAGE:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Autenticar no GHCR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir e publicar imagem
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Registrar imagem publicada
+        if: success()
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "# Docker Build - CyberQuiz"
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo "Tag: $IMAGE_TAG"
+            echo "Digest: $IMAGE_DIGEST"
+            echo "Referencia imutavel: $IMAGE_NAME@$IMAGE_DIGEST"
+          } > docker-build.md
+
+      - name: Publicar relatorio Docker
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relatorio-05-docker-build
+          path: docker-build.md
+          if-no-files-found: warn
+
+      - name: Registrar falha do build
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "# Docker Build - CyberQuiz"
+            echo
+            echo "Status: falha"
+            echo "Commit: $GITHUB_SHA"
+            echo "Consulte os logs do job docker-build."
+          } > docker-build.md
