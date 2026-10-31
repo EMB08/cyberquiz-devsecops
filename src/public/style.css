@@ -1,0 +1,174 @@
+
+:root {
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  background: #080d18;
+  color: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(
+    circle at top,
+    #14243b,
+    #080d18 70%
+  );
+}
+
+.container {
+  width: 100%;
+  max-width: 720px;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.logo {
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 3px;
+}
+
+.logo span {
+  color: #00e5a0;
+}
+
+header p, footer {
+  color: #94a3b8;
+  font-size: 12px;
+  letter-spacing: 3px;
+}
+
+.card {
+  background: #111c2e;
+  border: 1px solid #24364e;
+  border-radius: 16px;
+  padding: 36px;
+  box-shadow: 0 16px 50px #0005;
+}
+
+.terminal {
+  font-family: monospace;
+  color: #00e5a0;
+  margin-bottom: 24px;
+}
+
+h1, h2 {
+  line-height: 1.4;
+}
+
+.card p {
+  color: #a9b8ca;
+  line-height: 1.7;
+}
+
+button {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid #00e5a0;
+  border-radius: 8px;
+  background: #00e5a0;
+  color: #07120f;
+  font-weight: 800;
+  cursor: pointer;
+  margin-top: 18px;
+  transition: 0.2s;
+}
+
+button:hover:not(:disabled) {
+  background: #00b982;
+  transform: translateY(-2px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.game-info {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #00e5a0;
+  font-size: 14px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #24364e;
+  border-radius: 8px;
+  margin: 18px 0 30px;
+  overflow: hidden;
+}
+
+#progress-fill {
+  width: 0%;
+  height: 100%;
+  background: #00e5a0;
+  transition: width 0.3s;
+}
+
+.options {
+  display: grid;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.option {
+  text-align: left;
+  background: #17263c;
+  color: #e2e8f0;
+  border-color: #31435c;
+  margin: 0;
+}
+
+.option.correct {
+  border-color: #00e5a0;
+  background: #124334;
+}
+
+.option.wrong {
+  border-color: #ff657a;
+  background: #512333;
+}
+
+#feedback {
+  min-height: 24px;
+  font-weight: bold;
+}
+
+#final-score {
+  font-size: 56px;
+  color: #00e5a0;
+  font-weight: 900;
+  text-align: center;
+}
+
+footer {
+  text-align: center;
+  margin-top: 30px;
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 22px;
+  }
+
+  .logo {
+    font-size: 28px;
+  }
+}
+
