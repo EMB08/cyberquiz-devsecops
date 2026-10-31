@@ -191,6 +191,10 @@ jobs:
     runs-on: ubuntu-24.04
     needs: sca
 
+    outputs:
+      image_name: ${{ steps.image.outputs.name }}
+      image_digest: ${{ steps.push.outputs.digest }}
+
     if: github.event_name != 'pull_request'
 
     permissions:
@@ -267,3 +271,110 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo "Consulte os logs do job docker-build."
           } > docker-build.md
+
+  image-scan:
+    name: "06 - Trivy Image Scan"
+    runs-on: ubuntu-24.04
+    needs: docker-build
+
+    permissions:
+      contents: read
+      packages: read
+
+    env:
+      IMAGE_NAME: ${{ needs.docker-build.outputs.image_name }}
+      IMAGE_DIGEST: ${{ needs.docker-build.outputs.image_digest }}
+
+    steps:
+      - name: Instalar Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TRIVY_VERSION="0.69.3"
+
+          curl -fsSL \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+
+          tar -xzf /tmp/trivy.tar.gz -C /tmp trivy
+          sudo install /tmp/trivy /usr/local/bin/trivy
+
+          trivy --version
+
+      - name: Autenticar no GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io \
+            -u "$GITHUB_ACTOR" \
+            --password-stdin
+
+      - name: Baixar imagem publicada
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$IMAGE_NAME"
+          test -n "$IMAGE_DIGEST"
+
+          IMAGE_REF="$IMAGE_NAME@$IMAGE_DIGEST"
+
+          echo "Imagem analisada: $IMAGE_REF"
+          docker pull "$IMAGE_REF"
+
+      - name: Gerar relatorio completo da imagem
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE_REF="$IMAGE_NAME@$IMAGE_DIGEST"
+
+          trivy image "$IMAGE_REF" \
+            --image-src docker \
+            --scanners vuln \
+            --format table \
+            --output trivy-image-completo.txt \
+            --exit-code 0
+
+      - name: Bloquear vulnerabilidades corrigiveis HIGH e CRITICAL
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE_REF="$IMAGE_NAME@$IMAGE_DIGEST"
+
+          trivy image "$IMAGE_REF" \
+            --image-src docker \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            --output trivy-image-high-critical.json \
+            --exit-code 1
+
+      - name: Registrar referencia da imagem
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# Trivy Image Scan - CyberQuiz"
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo "Imagem: $IMAGE_NAME"
+            echo "Digest: $IMAGE_DIGEST"
+            echo "Referencia: $IMAGE_NAME@$IMAGE_DIGEST"
+          } > trivy-image-referencia.md
+
+      - name: Publicar relatorios da imagem
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relatorio-06-trivy-image
+          path: |
+            trivy-image-completo.txt
+            trivy-image-high-critical.json
+            trivy-image-referencia.md
+          if-no-files-found: warn
