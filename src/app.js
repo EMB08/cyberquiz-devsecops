@@ -3,7 +3,11 @@
 const express = require("express");
 const path = require("node:path");
 
-const app = express();
+// Semgrep: CSRF nao se aplica a esta versao do CyberQuiz.
+// API publica, sem cookies de sessao, autenticacao ou
+// operacoes que alterem estado persistente.
+// Reavaliar se forem adicionadas sessoes ou acoes sensiveis.
+const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "10kb" }));
