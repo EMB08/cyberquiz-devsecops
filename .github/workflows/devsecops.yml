@@ -661,3 +661,73 @@ jobs:
             relatorio-08-producao.md
             production-health.json
           if-no-files-found: warn
+
+
+  pipeline-summary:
+    name: "09 - Resumo da Esteira"
+    runs-on: ubuntu-24.04
+    if: always()
+    needs:
+      - secrets-scan
+      - sast
+      - build
+      - sca
+      - docker-build
+      - image-scan
+      - dast-staging
+      - deploy-prod
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Gerar resumo consolidado
+        shell: bash
+        env:
+          SECRETS_STATUS: ${{ needs.secrets-scan.result }}
+          SAST_STATUS: ${{ needs.sast.result }}
+          BUILD_STATUS: ${{ needs.build.result }}
+          SCA_STATUS: ${{ needs.sca.result }}
+          DOCKER_STATUS: ${{ needs.docker-build.result }}
+          IMAGE_STATUS: ${{ needs.image-scan.result }}
+          DAST_STATUS: ${{ needs.dast-staging.result }}
+          PROD_STATUS: ${{ needs.deploy-prod.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "# Resumo da Esteira - CyberQuiz"
+            echo
+            echo "**Commit:** \`$GITHUB_SHA\`"
+            echo "**Execucao:** $GITHUB_RUN_ID"
+            echo "**Evento:** $GITHUB_EVENT_NAME"
+            echo
+            echo "| Etapa | Job | Resultado |"
+            echo "|---|---|---|"
+            echo "| 01 | Gitleaks | $SECRETS_STATUS |"
+            echo "| 02 | Semgrep SAST | $SAST_STATUS |"
+            echo "| 03 | Build e Testes | $BUILD_STATUS |"
+            echo "| 04 | Trivy SCA | $SCA_STATUS |"
+            echo "| 05 | Docker Build e GHCR | $DOCKER_STATUS |"
+            echo "| 06 | Trivy Image Scan | $IMAGE_STATUS |"
+            echo "| 07 | DAST em Homologacao | $DAST_STATUS |"
+            echo "| 08 | Deploy em Producao | $PROD_STATUS |"
+            echo
+            echo "## Evidencias"
+            echo
+            echo "- [Execucao no GitHub Actions](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo "- [Aplicacao em producao](https://cyberquiz-devsecops.onrender.com)"
+            echo
+            echo "> O DAST executa em modo informativo. O resultado"
+            echo "> 'success' indica execucao concluida, nao ausencia de alertas."
+          } > resumo-esteira.md
+
+          cat resumo-esteira.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar resumo da esteira
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: resumo-da-esteira
+          path: resumo-esteira.md
+          if-no-files-found: error
