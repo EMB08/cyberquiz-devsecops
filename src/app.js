@@ -12,6 +12,10 @@ const app = express(); // nosemgrep: javascript.express.security.audit.express-c
 app.disable("x-powered-by");
 app.use(express.json({ limit: "10kb" }));
 
+const helmet = require("helmet");
+
+app.use(helmet());
+
 const questions = [
   {
     id: 1,
