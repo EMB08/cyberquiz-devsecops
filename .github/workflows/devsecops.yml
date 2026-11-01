@@ -378,3 +378,83 @@ jobs:
             trivy-image-high-critical.json
             trivy-image-referencia.md
           if-no-files-found: warn
+
+
+  dast-staging:
+    name: "07 - DAST em Homologacao"
+    needs: image-scan
+    runs-on: ubuntu-24.04
+
+    if: github.event_name != 'pull_request'
+
+    environment:
+      name: homologacao
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Configurar Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci --omit=dev
+
+      - name: Iniciar CyberQuiz em homologacao
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NODE_ENV=production PORT=3000 \
+            node src/server.js > cyberquiz-staging.log 2>&1 &
+
+          echo $! > cyberquiz-staging.pid
+
+          for tentativa in $(seq 1 30); do
+            if curl --fail --silent \
+              http://127.0.0.1:3000/health > /dev/null; then
+              echo "CyberQuiz disponivel em homologacao."
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "ERRO: CyberQuiz nao iniciou."
+          cat cyberquiz-staging.log
+          exit 1
+
+      - name: Descobrir endereco do host Docker
+        id: docker-host
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HOST_IP="$(docker network inspect bridge \
+            --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')"
+
+          test -n "$HOST_IP"
+          echo "ip=$HOST_IP" >> "$GITHUB_OUTPUT"
+          echo "Endereco Docker encontrado: $HOST_IP"
+
+      - name: OWASP ZAP Baseline
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: 'http://${{ steps.docker-host.outputs.ip }}:3000'
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: relatorio-07-zap-baseline
+
+      - name: Guardar log da aplicacao
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relatorio-07-homologacao-log
+          path: cyberquiz-staging.log
+          if-no-files-found: warn
