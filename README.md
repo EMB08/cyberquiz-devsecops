@@ -8,10 +8,10 @@
 | Lincoln Vieira de Paula | RM565842 |
 | Rafaela Christine Pereira Bassi | RM561715 |
 
-**Instituição:** FIAP
-**Projeto:** CyberQuiz DevSecOps
-**Curso:** Cybersecurity  
-**Turma:** 2TDCPG
+- **Instituição:** FIAP
+- **Projeto:** CyberQuiz DevSecOps
+- **Curso:** Cybersecurity
+- **Turma:** 2TDCPG
 
 ![Pipeline DevSecOps](https://github.com/EMB08/cyberquiz-devsecops/actions/workflows/devsecops.yml/badge.svg)
 
