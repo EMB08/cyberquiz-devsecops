@@ -458,3 +458,206 @@ jobs:
           name: relatorio-07-homologacao-log
           path: cyberquiz-staging.log
           if-no-files-found: warn
+
+  deploy-prod:
+    name: "08 - Deploy em Producao"
+    runs-on: ubuntu-24.04
+
+    needs:
+      - docker-build
+      - image-scan
+      - dast-staging
+
+    if: github.event_name != 'pull_request'
+
+    environment:
+      name: producao
+      url: ${{ vars.RENDER_PRODUCTION_URL }}
+
+    permissions:
+      contents: read
+
+    timeout-minutes: 20
+
+    concurrency:
+      group: cyberquiz-producao
+      cancel-in-progress: false
+
+    env:
+      IMAGE_NAME: ${{ needs.docker-build.outputs.image_name }}
+      IMAGE_DIGEST: ${{ needs.docker-build.outputs.image_digest }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      PRODUCTION_URL: ${{ vars.RENDER_PRODUCTION_URL }}
+
+    steps:
+      - name: Preparar referencia imutavel
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$IMAGE_NAME"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+
+          IMAGE_REF="$IMAGE_NAME@$IMAGE_DIGEST"
+
+          echo "ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+          echo "Imagem aprovada: $IMAGE_REF"
+
+      - name: Solicitar deploy ao Render
+        id: deploy
+        shell: bash
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+
+          test -n "$DEPLOY_HOOK"
+
+          HTTP_CODE="$(curl --silent --show-error \
+            --get \
+            --data-urlencode "imgURL=$IMAGE_REF" \
+            --output render-deploy-response.json \
+            --write-out '%{http_code}' \
+            --max-time 60 \
+            "$DEPLOY_HOOK")"
+
+          echo "HTTP do Render: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::error::Render nao iniciou o deploy (HTTP $HTTP_CODE)."
+            exit 1
+          fi
+
+          DEPLOY_ID="$(jq -r '.deploy.id // empty' \
+            render-deploy-response.json)"
+
+          if [[ ! "$DEPLOY_ID" =~ ^dep-[a-zA-Z0-9]+$ ]]; then
+            echo "::error::Render nao retornou um Deploy ID valido."
+            exit 1
+          fi
+
+          echo "id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "Deploy solicitado: $DEPLOY_ID"
+
+      - name: Aguardar conclusao do deploy
+        id: wait
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          DEPLOY_ID: ${{ steps.deploy.outputs.id }}
+          EXPECTED_IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_SERVICE_ID"
+
+          API_URL="https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID"
+
+          for tentativa in $(seq 1 40); do
+            curl --fail --silent --show-error \
+              --retry 3 \
+              --retry-delay 2 \
+              --max-time 30 \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --header "Accept: application/json" \
+              "$API_URL" \
+              --output render-deploy-status.json
+
+            STATUS="$(jq -r '.status // empty' \
+              render-deploy-status.json)"
+
+            echo "Tentativa $tentativa/40: $STATUS"
+
+            case "$STATUS" in
+              live)
+                ACTUAL_IMAGE="$(jq -r '.image.ref // empty' \
+                  render-deploy-status.json)"
+
+                if [[ "$ACTUAL_IMAGE" != "$EXPECTED_IMAGE" ]]; then
+                  echo "::error::A imagem implantada nao corresponde ao digest aprovado."
+                  echo "Esperada: $EXPECTED_IMAGE"
+                  echo "Informada pelo Render: $ACTUAL_IMAGE"
+                  exit 1
+                fi
+
+                echo "status=live" >> "$GITHUB_OUTPUT"
+                echo "Deploy concluido com a imagem correta."
+                exit 0
+                ;;
+
+              build_failed|update_failed|pre_deploy_failed|canceled|deactivated)
+                echo "::error::Deploy terminou com status: $STATUS"
+                exit 1
+                ;;
+            esac
+
+            sleep 15
+          done
+
+          echo "::error::Tempo limite aguardando o Render."
+          exit 1
+
+      - name: Verificar saude em producao
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HEALTH_URL="${PRODUCTION_URL%/}/health"
+
+          for tentativa in $(seq 1 12); do
+            if curl --fail --silent --show-error \
+              --max-time 30 \
+              "$HEALTH_URL" \
+              --output production-health.json; then
+
+              if jq -e \
+                '.status == "ok" and .application == "CyberQuiz"' \
+                production-health.json > /dev/null; then
+                echo "Health check aprovado."
+                cat production-health.json
+                exit 0
+              fi
+            fi
+
+            echo "Tentativa $tentativa/12: aguardando..."
+            sleep 10
+          done
+
+          echo "::error::Health check de producao falhou."
+          exit 1
+
+      - name: Gerar relatorio de producao
+        if: always()
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          DEPLOY_ID: ${{ steps.deploy.outputs.id }}
+          DEPLOY_STATUS: ${{ steps.wait.outputs.status }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "# Deploy em Producao - CyberQuiz"
+            echo
+            echo "Resultado do job: $JOB_STATUS"
+            echo "Commit: $GITHUB_SHA"
+            echo "Imagem: ${IMAGE_REF:-nao_disponivel}"
+            echo "Deploy ID: ${DEPLOY_ID:-nao_disponivel}"
+            echo "Status Render: ${DEPLOY_STATUS:-nao_confirmado}"
+            echo "URL: $PRODUCTION_URL"
+            echo "Health check: ${PRODUCTION_URL%/}/health"
+          } > relatorio-08-producao.md
+
+          cat relatorio-08-producao.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar relatorio de producao
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relatorio-08-producao
+          path: |
+            relatorio-08-producao.md
+            production-health.json
+          if-no-files-found: warn
